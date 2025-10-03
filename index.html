@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"/>
+<title>TracerV.J — Final (Alert · Mute · Solid Risk Colors)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+<style>
+  :root{
+    --bg:#0a0f14; --fg:#eaf2ff; --mut:#9fb1cf; --line:#1b2a3a; --brand:#6eb1ff;
+    --ok:#16c784; --warn:#f59e0b; --bad:#ef4444; --glass:rgba(8,13,20,.65); --zoom:1.45;
+    --mint:#16e0b1; --mintDark:#0aa082;
+  }
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,'Noto Sans KR',sans-serif}
+  #map{position:fixed; inset:0}
+
+  /* 상단 중앙 고지(검은 글자만) */
+  .consent{
+    position:fixed; left:50%; top:8px; transform:translateX(-50%) scale(var(--zoom));
+    z-index:90; color:#000; font-weight:900; white-space:nowrap; letter-spacing:.2px; text-shadow:none;
+  }
+
+  /* 좌상단 버튼 줄 */
+  .top-left-row{position:fixed; left:8px; top:48px; z-index:80; display:flex; gap:8px; align-items:center;
+                transform:scale(var(--zoom)); transform-origin:top left;}
+  .iBtn{display:inline-flex; align-items:center; justify-content:center; gap:8px;
+        border:1px solid var(--line); background:var(--glass); backdrop-filter:blur(6px);
+        color:var(--fg); padding:8px 10px; border-radius:12px; font-weight:800; cursor:pointer;}
+  .iBtn span{display:inline-block}
+
+  /* 우상단 칩 */
+  .top-right{position:fixed; right:8px; top:48px; z-index:80; display:flex; gap:8px; align-items:center;
+             transform:scale(var(--zoom)); transform-origin:top right;}
+  .chip{border:1px solid var(--line); background:var(--glass); backdrop-filter:blur(6px);
+        color:#cfe3ff; padding:6px 10px; border-radius:999px; display:inline-flex; gap:6px; align-items:center}
+  .dot{width:8px;height:8px;border-radius:50%} .ok{background:var(--ok)} .warn{background:var(--warn)} .bad{background:var(--bad)}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;opacity:.85}
+
+  /* 날씨/시계 */
+  .weatherbar{position:fixed; left:50%; top:100px; z-index:70; transform:translateX(-50%) scale(var(--zoom));
+              transform-origin:top center; display:flex; flex-direction:column; align-items:center; gap:6px}
+  .clock{border:1px solid var(--line);background:var(--glass);padding:4px 10px;border-radius:10px;color:#dfe9ff}
+  .wxline{display:flex;gap:12px;align-items:center;border:1px solid var(--line);background:var(--glass);
+          padding:6px 10px;border-radius:12px;white-space:nowrap}
+  .wxitem{display:flex;gap:8px;align-items:center;font-weight:800}
+  .wxsep{opacity:.5}
+  .wxemoji{font-size:22px;line-height:1}
+
+  /* 우측 통계 */
+  .stats{position:fixed; right:8px; top:168px; z-index:60; display:grid; gap:8px;
+         transform:scale(var(--zoom)); transform-origin:top right;}
+  .badge{border:1px solid var(--line); background:var(--glass); backdrop-filter:blur(6px);
+         padding:8px 10px; border-radius:10px; min-width:180px; display:flex; justify-content:space-between; align-items:baseline}
+  .badge .t{font-size:12px;color:var(--mut)}
+  .badge .n{font-weight:900;font-size:18px; text-align:right; font-variant-numeric:tabular-nums}
+
+  /* 위험 사각형 (클래스 기반 색 전환 보장) */
+  .riskDock{
+    position:fixed; right:8px; bottom:110px; z-index:80; min-width:272px;
+    border-radius:16px; padding:16px 18px; border:1px solid #1a2532;
+    box-shadow:0 10px 24px rgba(0,0,0,.35);
+    transform:scale(var(--zoom)); transform-origin:bottom right;
+    transition:background-color .25s, border-color .25s;
+    background:#0b121b;
+  }
+  .risk-ok{ background:#0f3d2b !important; border-color:#0f3d2b !important; }
+  .risk-warn{ background:#3a3008 !important; border-color:#3a3008 !important; }
+  .risk-bad{ background:#3b0d0d !important; border-color:#3b0d0d !important; }
+  .riskRow{display:flex; justify-content:space-between; align-items:center; margin:6px 0}
+  .riskLabel{font-size:12px; color:#9fb2cf}
+  .riskPct{font-weight:900; font-variant-numeric:tabular-nums}
+
+  /* 우하단 작은 상자들 */
+  .right-below{position:fixed; right:8px; bottom:16px; z-index:75; display:flex; gap:8px;
+               transform:scale(var(--zoom)); transform-origin:bottom right; align-items:center}
+  .qbar{border:1px solid var(--line);background:var(--glass);padding:6px 10px;border-radius:10px;display:flex;gap:10px;align-items:center}
+  .qpill{height:6px;width:52px;border-radius:999px;background:#233142;overflow:hidden;position:relative}
+  .qfill{position:absolute;left:0;top:0;bottom:0;width:30%;background:var(--ok);transition:width .25s}
+  .qtxt{font-size:12px;color:#b8c6dd}
+  .bchip{border:1px solid var(--line);background:var(--glass);padding:6px 10px;border-radius:10px;display:flex;align-items:center;gap:8px}
+
+  /* 하단 중앙 통화 */
+  .callFab{position:fixed; left:50%; bottom:16px; transform:translateX(-50%); z-index:85}
+  .callFab button{width:72px;height:72px;border-radius:50%; border:2px solid #123a2a;
+                  background:linear-gradient(180deg,#14b8a6,#0ea5e9); color:white;font-weight:900;font-size:16px;
+                  box-shadow:0 12px 28px rgba(0,0,0,.45);}
+
+  /* 범례 */
+  .legend{position:fixed; left:8px; bottom:16px; z-index:70; display:grid; gap:6px;
+          transform:scale(var(--zoom)); transform-origin:bottom left;}
+  .legend .chip{padding:4px 8px}
+  .lineKey{display:inline-block; width:24px; height:0; border-top:4px solid currentColor; vertical-align:middle; margin-right:6px}
+
+  /* 설정 드로어 */
+  .drawer{position:fixed; inset:0; display:none; z-index:95;} .drawer.open{display:block}
+  .scrim{position:absolute; inset:0; background:rgba(0,0,0,.45)}
+  .sheet{position:absolute; right:0; top:0; bottom:0; width:90vw; max-width:520px; background:#0f1620; border-left:1px solid var(--line); padding:14px; overflow:auto}
+  .g{display:grid; gap:10px}
+  input{border:1px solid var(--line); background:#0c1420; color:#eaf2ff; padding:10px 12px; border-radius:10px; font-size:16px}
+  .groupTitle{font-weight:900;color:#cfe3ff;margin:4px 0 0 0}
+  .sub{color:#9fb1cf;font-size:12px;margin-top:-4px}
+
+  /* 100% 전체 경고 오버레이: 중앙 큰 X + 위 메시지 + 아래 강제해제 */
+  .alertFull{position:fixed; inset:0; z-index:200; display:none; align-items:center; justify-content:center;
+             background:rgba(150,0,0,0.60); backdrop-filter:blur(2px); color:#fff; text-align:center}
+  .alertFull.show{display:flex}
+  .alertStack{display:flex; flex-direction:column; align-items:center; gap:14px}
+  .alertMsg{font-size:22px; font-weight:900; text-shadow:0 2px 12px rgba(0,0,0,.6)}
+  .alertClose{width:180px; height:180px; border-radius:50%; border:4px solid rgba(255,255,255,.9);
+              background:rgba(0,0,0,.25); color:#fff; font-weight:900; font-size:108px; line-height:164px; cursor:pointer;
+              box-shadow:0 10px 30px rgba(0,0,0,.45)}
+  .alertClose:active{transform:scale(.97)}
+  .alertMute{padding:10px 16px; border-radius:12px; border:2px solid rgba(255,255,255,.9);
+             background:rgba(0,0,0,.25); color:#fff; font-weight:900; font-size:16px; cursor:pointer}
+
+  /* 사운드 온 모달 */
+  .soundModal{position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:210; display:flex; align-items:center; justify-content:center}
+  .soundCard{background:#0e1520; border:1px solid var(--line); border-radius:16px; padding:18px; width:min(92vw,420px); text-align:center}
+  .soundCard h3{margin:0 0 8px 0}
+  .soundCard p{margin:0 0 12px 0; color:#bcd0ee}
+  .soundCard button{width:100%; padding:12px 14px; border-radius:12px; border:1px solid #144; background:#0db; color:#012; font-weight:900; font-size:18px}
+
+  /* 토스트(우상단, 민트/그린) */
+  .toastWrap{position:fixed; right:10px; top:10px; z-index:220; display:flex; flex-direction:column; gap:8px}
+  .toast{
+    min-width:240px; max-width:320px; padding:10px 12px 10px 12px; border-radius:12px;
+    background:linear-gradient(180deg, rgba(22,224,177,0.95), rgba(12,120,100,0.95));
+    color:#012; border:1px solid rgba(5,60,50,0.6); box-shadow:0 10px 22px rgba(0,0,0,.28);
+    font-weight:900; display:flex; align-items:flex-start; gap:8px;
+  }
+  .toast .tmsg{flex:1}
+  .toast .tclose{cursor:pointer; font-weight:900; border:none; background:transparent; color:#022; font-size:18px; line-height:1}
+  .toast .tsub{display:block; font-size:12px; font-weight:700; opacity:.8; margin-top:4px}
+
+  .leaflet-container{font:12px/1.5 Arial,Helvetica,sans-serif} .leaflet-control-zoom{display:none}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<!-- 상단 중앙 안내 -->
+<div class="consent">해당 어플은 테스트용으로 추적대상인 어머니의 동의를 구한 추적어플입니다</div>
+
+<!-- 좌상단 버튼 -->
+<div class="top-left-row">
+  <button id="btnMenu" class="iBtn" aria-label="menu"><span>≡</span><span>메뉴</span></button>
+  <button id="btnZoomIn" class="iBtn" title="확대"><span>＋</span></button>
+  <button id="btnZoomOut" class="iBtn" title="축소"><span>－</span></button>
+  <button id="btnCenter" class="iBtn" title="현위치"><span>현위치</span></button>
+</div>
+
+<!-- 우상단 칩 -->
+<div class="top-right">
+  <div class="chip">D-<span id="trialLeft">1000</span></div>
+  <div class="chip" id="serverChip"><span id="serverDot" class="dot warn"></span><span id="serverTxt">미연결</span><span class="mono" id="chipPing">—</span></div>
+  <button id="btnAudio" class="iBtn" style="font-weight:900">🔊 사운드 OFF</button>
+</div>
+
+<!-- 날씨/시계 -->
+<div class="weatherbar">
+  <div class="clock" id="clock">—</div>
+  <div class="wxline" id="wx">
+    <div class="wxitem"><span>오늘날씨</span><span id="wx0emoji" class="wxemoji">☀️</span><span id="wx0t">—°C</span><span class="wxsep"> / </span><span id="wx0p" class="mono">—%</span></div>
+    <div class="wxitem wxsep">|</div>
+    <div class="wxitem"><span>내일날씨</span><span id="wx1emoji" class="wxemoji">☀️</span><span id="wx1t">—°C</span><span class="wxsep"> / </span><span id="wx1p" class="mono">—%</span></div>
+  </div>
+</div>
+
+<!-- 우측 통계 -->
+<div class="stats">
+  <div class="badge"><div class="t">거리</div><div class="n" id="statDist">0.00 km</div></div>
+  <div class="badge"><div class="t">걸음</div><div class="n" id="statSteps">0</div></div>
+  <div class="badge"><div class="t">시간</div><div class="n" id="statTime">0.0 분</div></div>
+  <div class="badge"><div class="t">칼로리</div><div class="n" id="statKcal">0 kcal</div></div>
+</div>
+
+<!-- 위험 사각형 -->
+<div id="riskDock" class="riskDock risk-ok">
+  <div class="riskRow"><span class="riskLabel">낙상 위험</span><span id="fallPct" class="riskPct">0%</span></div>
+  <div class="riskRow"><span class="riskLabel">위치 위험</span><span id="locPct" class="riskPct">0%</span></div>
+</div>
+
+<!-- 우하단 작은 상자 -->
+<div class="right-below">
+  <div class="qbar" title="연결/정확도">
+    <span class="qtxt">📶</span><span class="qpill"><span id="qNet" class="qfill" style="width:20%"></span></span>
+    <span class="qtxt">🎯</span><span class="qpill"><span id="qAcc" class="qfill" style="width:20%"></span></span>
+  </div>
+  <div class="bchip" id="bchip">🔋 —%</div>
+</div>
+
+<!-- 하단 중앙 통화 -->
+<div class="callFab"><button id="btnCall" title="대상자에게 전화">📞</button></div>
+
+<!-- 범례 -->
+<div class="legend">
+  <div class="chip"><span class="lineKey" style="color:#6eb1ff"></span>오늘 경로</div>
+  <div class="chip"><span class="lineKey" style="color:#00ffff; opacity:.35"></span>최근 7일</div>
+  <div class="chip"><span class="lineKey" style="color:#b07cff; opacity:.25"></span>최근 15일</div>
+  <div class="chip"><span class="lineKey" style="color:#b8c2d6; opacity:.18"></span>최근 30일</div>
+</div>
+
+<!-- 100% 전체 경고 (메시지 위, X 중앙, 강제해제 아래) -->
+<div id="alertFull" class="alertFull" aria-hidden="true" role="alertdialog" aria-label="위험 경고">
+  <div class="alertStack">
+    <div id="alertMsg" class="alertMsg">위험! 낙상/위치 위험 100%</div>
+    <button id="alertClose" class="alertClose" aria-label="닫기">✕</button>
+    <button id="alertMute" class="alertMute" aria-label="강제 해제">강제 해제 (2분간 재알림 차단)</button>
+  </div>
+</div>
+
+<!-- 설정 드로어 -->
+<div id="drawer" class="drawer" aria-hidden="true">
+  <div class="scrim" id="scrim"></div>
+  <div class="sheet g" role="dialog" aria-label="설정/식별/공유">
+    <h3 class="groupTitle">역할/식별(공기계 지원)</h3>
+    <div class="sub">📞 버튼은 <b>대상자 번호</b>로 발신. 모든 값은 로컬(localStorage)에 저장됩니다.</div>
+    <div class="g">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><div class="sub">대상자 전화번호</div><input id="inpPhoneTarget" placeholder="예: 01012345678" inputmode="tel"></div>
+        <div><div class="sub">보호자(관리자) 번호</div><input id="inpPhoneGuardian" placeholder="예: 01098765432" inputmode="tel"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><div class="sub">대상자 기기ID</div><input id="inpDevTarget" placeholder="예: target-uuid"></div>
+        <div><div class="sub">보호자 기기ID</div><input id="inpDevGuardian" placeholder="예: guardian-uuid"></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="iBtn" id="btnSaveIDs">저장</button>
+        <button class="iBtn" id="btnGenIDs">무작위 ID 생성</button>
+      </div>
+    </div>
+    <h3 class="groupTitle">서버/기본</h3>
+    <div class="g">
+      <div class="sub">서버 URL (선택, 있으면 원격 모니터링)</div>
+      <div style="display:flex;gap:8px"><input id="inpUrl" placeholder="https://example.run.app" style="flex:1"><button class="iBtn" id="btnSaveUrl">저장</button></div>
+    </div>
+    <h3 class="groupTitle">공유(읽기전용)</h3>
+    <div class="g"><button class="iBtn" id="btnShare">읽기전용 링크 복사</button></div>
+  </div>
+</div>
+
+<!-- 사운드 온 모달 -->
+<div id="soundModal" class="soundModal">
+  <div class="soundCard">
+    <h3>🔊 안전 알림을 켭니다</h3>
+    <p>브라우저 정책으로 인해 첫 탭이 필요합니다. <b>사운드 ON</b>을 눌러주세요.</p>
+    <button id="soundGo">사운드 ON</button>
+  </div>
+</div>
+
+<!-- 우상단 토스트 컨테이너 -->
+<div id="toastWrap" class="toastWrap" aria-live="polite" aria-atomic="true"></div>
+
+<script type="module">
+const $=s=>document.querySelector(s);
+
+/* ===== 설정 상수 ===== */
+const TRIAL_MS = 1000*24*3600*1000;        // 1000일
+const FALL_POST_MS = 20000;                 // 낙상 확정 20초
+const CJ_CENTER=[36.634,127.497];
+
+/* ===== 상태 ===== */
+let baseUrl = localStorage.getItem('ag.serverUrl') || '';
+let phoneTarget = localStorage.getItem('ag.phone.target') || '';
+let phoneGuardian = localStorage.getItem('ag.phone.guard') || '';
+let devTarget = localStorage.getItem('ag.dev.target') || '';
+let devGuardian = localStorage.getItem('ag.dev.guard') || '';
+
+/* ===== 지도 ===== */
+const map=L.map('map',{zoomControl:false}).setView(CJ_CENTER,14);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OSM'}).addTo(map);
+const marker=L.marker(CJ_CENTER).addTo(map);
+const circle=L.circle(CJ_CENTER,{radius:12,color:'#6eb1ff',fillColor:'#6eb1ff',fillOpacity:.15}).addTo(map);
+const todayLine=L.polyline([], {color:'#6eb1ff', weight:5, opacity:0.9}).addTo(map);
+const weekLine =L.polyline([], {color:'#00ffff', weight:4, opacity:0.35}).addTo(map);
+const d15Line  =L.polyline([], {color:'#b07cff', weight:4, opacity:0.25}).addTo(map);
+const d30Line  =L.polyline([], {color:'#b8c2d6', weight:4, opacity:0.18}).addTo(map);
+
+/* ===== 통계 ===== */
+const statDist=$('#statDist'), statSteps=$('#statSteps'), statTime=$('#statTime'), statKcal=$('#statKcal');
+const toRad=d=>d*Math.PI/180;
+const hav=(a,b,c,d)=>{const R=6371000, dLat=toRad(c-a), dLon=toRad(d-b), x=Math.sin(dLat/2)**2+Math.cos(toRad(a))*Math.cos(toRad(c))*Math.sin(dLon/2)**2; return 2*R*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));};
+const stride=()=>0.7;
+const kcalK1=(km,kg)=>(!kg||!km)?0:kg*km;
+const kcalK2=(min,kg,met=3.3)=>(!kg||!min)?0:met*3.5*kg*min/200;
+const profile={mode: localStorage.getItem('ag.prefMode') || 'K1',
+               kg: Number(localStorage.getItem('ag.weightKg')||0)||0,
+               cm: Number(localStorage.getItem('ag.heightCm')||0)||0};
+function renderStatsFrom(pts){
+  if(pts.length<2){ statDist.textContent='0.00 km'; statSteps.textContent='0'; statTime.textContent='0.0 분'; statKcal.textContent='0 kcal'; return; }
+  let dist=0; for(let i=1;i<pts.length;i++){ const A=pts[i-1], B=pts[i]; const q=(A.acc>30||B.acc>30)?0.5:1.0; dist+=hav(A.lat,A.lon,B.lat,B.lon)*q; }
+  const km=dist/1000, tmin=(pts.at(-1).ts - pts[0].ts)/60000, steps=Math.round(dist/stride());
+  const kcal=(profile.mode==='K2'&&profile.kg>0)?kcalK2(tmin,profile.kg):kcalK1(km,profile.kg);
+  statDist.textContent=km.toFixed(2)+' km'; statSteps.textContent=String(steps); statTime.textContent=tmin.toFixed(1)+' 분'; statKcal.textContent=kcal.toFixed(0)+' kcal';
+}
+
+/* ===== 위험 사각형 (클래스 기반 전환) ===== */
+const riskDock=$('#riskDock'), fallEl=$('#fallPct'), locEl=$('#locPct'), alertFull=$('#alertFull'), alertMsg=$('#alertMsg');
+let _wasFull=false;
+let muteUntil=0;      // 강제해제 시각까지 재알람 차단
+function applyRiskClass(v){
+  riskDock.classList.remove('risk-ok','risk-warn','risk-bad');
+  if(v<40) riskDock.classList.add('risk-ok');
+  else if(v<70) riskDock.classList.add('risk-warn');
+  else riskDock.classList.add('risk-bad');
+}
+function showAlertFull(message='위험! 낙상/위치 위험 100%'){
+  alertMsg.textContent = message;
+  alertFull.classList.add('show'); alertFull.setAttribute('aria-hidden','false');
+  try{ navigator.vibrate && navigator.vibrate([150,150,300,150,600]); }catch(e){}
+  alarmFallStart();
+  showToast(message, 'danger');
+}
+function hideAlertFull(){
+  alertFull.classList.remove('show'); alertFull.setAttribute('aria-hidden','true');
+  _wasFull=false; stopFallAlarm();
+}
+function updateRisk(fallPct,locPct){
+  const f=Math.max(0,Math.min(100,Math.round(fallPct||0)));
+  const l=Math.max(0,Math.min(100,Math.round(locPct ||0)));
+  fallEl.textContent=f+'%'; locEl.textContent=l+'%';
+  const worst=Math.max(f,l);
+  applyRiskClass(worst);               // ← 색상 전환 확실히 적용
+  // 알람/오버레이
+  const now=Date.now();
+  if(worst>=100 && !_wasFull && now>=muteUntil){ showAlertFull(); _wasFull=true; }
+  if(worst<100 && _wasFull){ hideAlertFull(); }
+  if (worst >= 70 && worst < 100 && now>=muteUntil) { chirpWarn(); showToast('위험 상승 (노란 구간)', 'warn'); }
+}
+
+/* ===== 경로/루틴/자정 롤오버 ===== */
+const dateKey=(ts=Date.now())=>{ const d=new Date(ts); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+const loadTracks=()=>{ try{return JSON.parse(localStorage.getItem('ag.tracks')||'[]');}catch{return [];} };
+const saveTracks=arr=>localStorage.setItem('ag.tracks', JSON.stringify(arr));
+function pushTodayPoint(lat,lon,acc,ts){
+  const key=dateKey(ts); const tracks=loadTracks(); let t=tracks.find(x=>x.day===key);
+  if(!t){ t={day:key,pts:[]}; tracks.push(t); } t.pts.push({lat,lon,ts,acc}); saveTracks(tracks);
+}
+const pointsToLatLngs=pts=>pts.map(p=>[p.lat,p.lon]);
+function cutDays(days){ const now=Date.now(), ms=days*24*3600*1000; const tracks=loadTracks().filter(t=>(now-new Date(t.day+'T00:00:00').getTime())<=ms); return pointsToLatLngs(tracks.flatMap(t=>t.pts)); }
+function redrawAggregates(){
+  const b7=weekLine.getLatLngs().length, b15=d15Line.getLatLngs().length, b30=d30Line.getLatLngs().length;
+  const s7=cutDays(7), s15=cutDays(15), s30=cutDays(30);
+  weekLine.setLatLngs(s7); d15Line.setLatLngs(s15); d30Line.setLatLngs(s30);
+  if(audioOn){
+    if(!b7 && s7.length) jingleAggregateMilestone(7), showToast('최근 7일 누적 경로 업데이트', 'ok');
+    if(!b15 && s15.length) jingleAggregateMilestone(15), showToast('최근 15일 누적 경로 업데이트', 'ok');
+    if(!b30 && s30.length) jingleAggregateMilestone(30), showToast('최근 30일 누적 경로 업데이트', 'ok');
+  }
+}
+function scheduleMidnightRoll(){
+  const now=new Date(); const next=new Date(now); next.setHours(24,0,0,0);
+  setTimeout(()=>{
+    const worst=parseInt(fallEl.textContent)||0;
+    if(worst<70){ jingleAllClear(); showToast('하루 종료: 이상 무(ALL CLEAR)', 'ok'); }
+    jingleRoutineComplete(); showToast('루틴 종결: 오늘 궤적 리셋', 'ok');
+    todayLine.setLatLngs([]); _lastPos=null;
+    scheduleMidnightRoll();
+  }, next.getTime()-now.getTime());
+}
+
+/* ===== WS / 신호 / 배터리 ===== */
+const serverTxt=$('#serverTxt'), serverDot=$('#serverDot'), chipPing=$('#chipPing');
+let ws=null;
+function setNetQuality(pct){ const el=$('#qNet'); el.style.width=pct+'%'; el.style.background = pct>=66?'#16c784':(pct>=33?'#f59e0b':'#ef4444'); }
+function setAccQuality(acc){ const pct= acc<=8?100 : acc<=20?60 : 25; const el=$('#qAcc'); el.style.width=pct+'%'; el.style.background = pct>=66?'#16c784':(pct>=33?'#f59e0b':'#ef4444'); }
+function connectWS(){
+  if(!baseUrl){ serverTxt.textContent='URL 필요'; serverDot.className='dot bad'; setNetQuality(20); return; }
+  const url = baseUrl.replace('https','wss').replace('http','ws') + '/ws/track';
+  const t0=performance.now(); ws=new WebSocket(url);
+  ws.onopen=()=>{ serverTxt.textContent='연결'; serverDot.className='dot ok'; chipPing.textContent=Math.round(performance.now()-t0)+'ms'; setNetQuality(100); jingleConnect(); showToast('서버 연결 완료', 'ok'); };
+  ws.onclose=()=>{ serverTxt.textContent='끊김'; serverDot.className='dot warn'; setNetQuality(40); jingleDisconnect(); showToast('서버 연결 끊김', 'warn'); setTimeout(connectWS,1500); };
+  ws.onerror=()=>{ serverTxt.textContent='오류'; serverDot.className='dot bad'; setNetQuality(20); jingleDisconnect(); showToast('서버 오류', 'warn'); };
+  ws.onmessage=(ev)=>{ try{ const m=JSON.parse(ev.data); if(m.type==='risk') updateRisk(m.fallPct,m.locPct); }catch(_){} };
+}
+async function batteryGuard(){
+  try{
+    if(!navigator.getBattery){ $('#bchip').textContent='🔋 N/A'; return; }
+    const b=await navigator.getBattery();
+    const upd=()=>{ const pct=Math.round(b.level*100); $('#bchip').textContent=(b.charging?'🔌 ':'🔋 ')+pct+'%'; };
+    b.addEventListener('levelchange',upd); b.addEventListener('chargingchange',upd); upd();
+  }catch{ $('#bchip').textContent='🔋 N/A'; }
+}
+
+/* ===== 체류 즐겨찾기(1시간) ===== */
+let _todayPoints=[], _cooldownMs=0, _lastPushTs=0;
+const starIcon=new L.DivIcon({className:'', html:'<div style="color:#ffd54f;font-size:22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))">★</div>', iconSize:[22,22], iconAnchor:[11,11]});
+let dwellStart=null, lastStarLat=null, lastStarLon=null;
+function maybeAddFavorite(lat,lon){
+  const R=40; if(!dwellStart){ dwellStart={lat,lon,ts:Date.now()}; return; }
+  const d=hav(dwellStart.lat,dwellStart.lon,lat,lon);
+  if(d<=R){
+    const stay=(Date.now()-dwellStart.ts)/60000;
+    if(stay>=60){
+      if(!lastStarLat||hav(lastStarLat,lastStarLon,lat,lon)>60){
+        L.marker([lat,lon],{icon:starIcon}).addTo(map).bindTooltip('즐겨찾기(체류 1시간+)',{permanent:false});
+        lastStarLat=lat; lastStarLon=lon;
+        showToast('즐겨찾기(체류 1시간) 자동 생성', 'ok');
+      }
+    }
+  } else { dwellStart={lat,lon,ts:Date.now()}; }
+}
+
+/* ===== 위치 푸시 ===== */
+function pushPos(lat,lon,acc=10){
+  const now=Date.now(); if(_cooldownMs && (_lastPushTs && now-_lastPushTs<_cooldownMs)) return; _lastPushTs=now;
+  const ts=now, latlng=[lat,lon];
+  todayLine.addLatLng(latlng); marker.setLatLng(latlng); circle.setLatLng(latlng);
+  _todayPoints.push({lat,lon,ts,acc}); renderStatsFrom(_todayPoints);
+  gpsJerkUpdate(lat,lon,acc,ts); setAccQuality(acc); maybeAddFavorite(lat,lon);
+  pushTodayPoint(lat,lon,acc,ts); redrawAggregates();
+  if(ws&&ws.readyState===1){
+    const did=devTarget || (localStorage.getItem('ag.did')||(crypto.randomUUID?.()||String(Math.random())));
+    localStorage.setItem('ag.did',did);
+    ws.send(JSON.stringify({type:'up',deviceId:did,geo:{lat,lon,acc},ts}));
+  }
+}
+function startGeo(){
+  if(navigator.geolocation){
+    try{
+      navigator.geolocation.watchPosition(
+        pos=>{ const {latitude,longitude,accuracy}=pos.coords; const acc=Math.max(5,Math.round(accuracy||10)); pushPos(latitude,longitude,acc); },
+        _=>fallbackDemo(), {enableHighAccuracy:true,maximumAge:1000,timeout:5000}
+      ); return;
+    }catch{}
+  }
+  fallbackDemo();
+}
+function fallbackDemo(){
+  const path=[[36.6288,127.4965],[36.6316,127.4989],[36.6347,127.5003],[36.6371,127.4981],[36.6389,127.4940],[36.6373,127.4900],[36.6342,127.4907],[36.6311,127.4930]];
+  let i=0; setInterval(()=>{ const [a,b]=path[i%path.length]; i++; pushPos(a,b,10); map.panTo([a,b],{animate:true}); },3000);
+}
+
+/* ===== 낙상 FSM + GPS Jerk ===== */
+const G=9.81; let fsm='IDLE', preTs=0, impTs=0, postStart=0, postBuffer=[];
+function mag(a){ return Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z); }
+function nowMs(){ return performance.now(); }
+function checkPostImmobility(){ if(postBuffer.length<15) return false; const m=postBuffer; const avg=m.reduce((s,v)=>s+v,0)/m.length; const varc=m.reduce((s,v)=>s+(v-avg)*(v-avg),0)/m.length; return avg>0.6 && avg<1.4 && varc<0.02; }
+function attachMotion(){
+  window.addEventListener('devicemotion', (ev)=>{
+    const a=ev.accelerationIncludingGravity; if(!a) return;
+    const g=mag(a)/G; const t=nowMs();
+    if(fsm==='IDLE'){ if(g<0.2){ fsm='PRE'; preTs=t; } }
+    else if(fsm==='PRE'){ if(g>2.5){ fsm='IMPACT'; impTs=t; postBuffer.length=0; postStart=0; } else if(t-preTs>800){ fsm='IDLE'; } }
+    else if(fsm==='IMPACT'){
+      postBuffer.push(g); if(postBuffer.length>30) postBuffer.shift();
+      if(!postStart) postStart=t;
+      if(checkPostImmobility() && (t-postStart)>20000){ if(Date.now()>=muteUntil){ fsm='FALL'; updateRisk(100, Math.max(parseInt($('#locPct').textContent)||0, 70)); showAlertFull(); } }
+      if(t-impTs>6000 && !checkPostImmobility()){ fsm='IDLE'; postBuffer.length=0; }
+    }else if(fsm==='FALL'){ if(g>1.4){ fsm='IDLE'; postBuffer.length=0; hideAlertFull(); } }
+    let simFall=0; if(fsm==='PRE') simFall=30; else if(fsm==='IMPACT') simFall=70; else if(fsm==='FALL') simFall=100;
+    const curLoc=parseInt($('#locPct').textContent)||0; if(simFall>0) updateRisk(simFall,curLoc);
+  }, {capture:false});
+}
+let _gpsPrev=null;
+function gpsJerkUpdate(lat,lon,acc,ts){
+  if(!_gpsPrev){ _gpsPrev={lat,lon,ts,speed:0}; return; }
+  const dt=(ts-_gpsPrev.ts)/1000, dLat=(lat-_gpsPrev.lat)*111320, dLon=(lon-_gpsPrev.lon)*88000;
+  const speed=Math.sqrt(dLat*dLat+dLon*dLon)/(dt||1), jerk=Math.abs(speed-(_gpsPrev.speed||0));
+  _gpsPrev={lat,lon,ts,speed};
+  const fallRisk=Math.min(100,Math.max(0,(jerk-1.5)*30));
+  const locRisk =Math.min(100,Math.max(0,(acc-10)*3));
+  updateRisk(fallRisk,locRisk);
+}
+
+/* ===== 시계/날씨 ===== */
+function startClock(){
+  const el=$('#clock'); const dnames=['일','월','화','수','목','금','토'];
+  const tick=()=>{const d=new Date();el.textContent=`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} (${dnames[d.getDay()]})  ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`};
+  tick(); setInterval(tick,30000);
+}
+function emojiKey(weatherCode, precipProb, cloud){ if (weatherCode >= 95 || precipProb >= 70) return '⛈️'; if (precipProb >= 40) return '🌧️'; if (cloud >= 60) return '☁️'; return '☀️'; }
+async function loadWeather(lat,lon){
+  try{
+    const url=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=cloudcover,precipitation_probability&daily=temperature_2m_max,precipitation_probability_max,weathercode&timezone=auto`;
+    const r=await fetch(url); const j=await r.json();
+    const t0=Math.round(j.daily.temperature_2m_max[0]), p0=j.daily.precipitation_probability_max[0]??0, w0=j.daily.weathercode[0]??0;
+    const t1=Math.round(j.daily.temperature_2m_max[1]), p1=j.daily.precipitation_probability_max[1]??0, w1=j.daily.weathercode[1]??0;
+    const cc=j.hourly.cloudcover?.[0] ?? 0;
+    $('#wx0emoji').textContent = emojiKey(w0,p0,cc);
+    $('#wx1emoji').textContent = emojiKey(w1,p1,cc);
+    $('#wx0t').textContent = `${t0}°C`; $('#wx0p').textContent = `${p0}%`;
+    $('#wx1t').textContent = `${t1}°C`; $('#wx1p').textContent = `${p1}%`;
+  }catch{
+    $('#wx0emoji').textContent='—'; $('#wx1emoji').textContent='—';
+    $('#wx0t').textContent = `N/A`; $('#wx0p').textContent = `—%`;
+    $('#wx1t').textContent = `N/A`; $('#wx1p').textContent = `—%`;
+  }
+}
+
+/* ===== 공유 링크 ===== */
+function buildShareLink(){
+  const day=dateKey(); const t=loadTracks().find(x=>x.day===day);
+  const data={day,pts:t?t.pts.map(p=>[Number(p.lat.toFixed(5)),Number(p.lon.toFixed(5))]):[], target:devTarget, guardian:devGuardian};
+  const raw=btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+  const token=Math.floor(Date.now()/1000+24*3600);
+  const url=location.origin+location.pathname+`?view=ro&d=${raw}&exp=${token}`;
+  navigator.clipboard?.writeText(url); showToast('읽기전용 링크 복사됨(24h)', 'ok');
+}
+
+/* ===== R2-D2 사운드 & 토스트 ===== */
+let audioCtx=null, audioOn=false, fallAlarmTimer=null;
+function audioUnlock(){
+  if(audioOn) return;
+  try{
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    audioOn = true;
+    $('#btnAudio').textContent = '🔊 사운드 ON';
+    beep([{f:880,d:80},{f:1320,d:80},{f:1760,d:80}]);
+    $('#soundModal').style.display='none';
+    showToast('사운드 ON', 'ok');
+  }catch(e){ alert('오디오 초기화 실패: '+e); }
+}
+function makeOsc(f,d, type='sine',gain=0.12, when=0){
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = type; o.frequency.value = f;
+  g.gain.setValueAtTime(0, audioCtx.currentTime+when);
+  g.gain.linearRampToValueAtTime(gain, audioCtx.currentTime+when+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime+when + d/1000);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(audioCtx.currentTime+when);
+  o.stop(audioCtx.currentTime+when + d/1000 + 0.02);
+  return d;
+}
+function beep(seq){ if(!audioOn || !audioCtx) return; let t=0; for(const s of seq){ t += makeOsc(s.f, s.d, s.type||'sine', s.gain||0.12, t/1000); t += s.gap||20; } }
+function jingleConnect(){ beep([{f:880,d:90},{f:1175,d:90},{f:1660,d:120}]); }
+function jingleDisconnect(){ beep([{f:440,d:120},{f:330,d:120},{f:220,d:180}]); }
+function chirpWarn(){ beep([{f:1200,d:60, type:'triangle', gain:0.10}]); }
+function alarmFallStart(){ stopFallAlarm(); const loop=()=>{ beep([{f:880,d:120,type:'square',gain:0.14},{f:660,d:120,type:'square',gain:0.14,gap:40},{f:990,d:160,type:'square',gain:0.14}]); fallAlarmTimer = setTimeout(loop, 900); }; loop(); }
+function stopFallAlarm(){ if(fallAlarmTimer){ clearTimeout(fallAlarmTimer); fallAlarmTimer=null; } }
+function jingleRoutineComplete(){ beep([{f:1046,d:120},{f:1318,d:120},{f:1567,d:160}]); }
+function jingleAggregateMilestone(days){ const base = days===7?880:days===15?988:1108; beep([{f:base,d:90},{f:base+220,d:120}]); }
+function jingleAllClear(){ beep([{f:660,d:80},{f:880,d:80},{f:660,d:80}]); }
+
+function showToast(msg, level='ok'){
+  const wrap=$('#toastWrap');
+  const el=document.createElement('div');
+  el.className='toast';
+  el.innerHTML=`<div class="tmsg">${msg}<span class="tsub">${level==='ok'?'정상 알림': level==='warn'?'주의 알림':'중요 알림'}</span></div><button class="tclose" aria-label="닫기">✕</button>`;
+  const closer=()=>{ el.remove(); };
+  el.querySelector('.tclose').onclick=closer;
+  wrap.appendChild(el);
+  setTimeout(()=>{ try{el.remove();}catch{} }, 10000);
+}
+
+/* ===== UI 연동 ===== */
+const trialLeftEl=$('#trialLeft'), drawer=$('#drawer'), scrim=$('#scrim');
+const inpUrl=$('#inpUrl'); const inpPhoneTarget=$('#inpPhoneTarget'), inpPhoneGuardian=$('#inpPhoneGuardian');
+const inpDevTarget=$('#inpDevTarget'),   inpDevGuardian=$('#inpDevGuardian');
+$('#btnMenu').onclick=()=>{ drawer.classList.add('open'); drawer.setAttribute('aria-hidden','false');
+  inpUrl.value=baseUrl||''; inpPhoneTarget.value=phoneTarget||''; inpPhoneGuardian.value=phoneGuardian||'';
+  inpDevTarget.value=devTarget||''; inpDevGuardian.value=devGuardian||''; };
+scrim.onclick=()=>{ drawer.classList.remove('open'); drawer.setAttribute('aria-hidden','true'); };
+$('#btnSaveUrl').onclick=()=>{ baseUrl=inpUrl.value.trim(); localStorage.setItem('ag.serverUrl',baseUrl); drawer.classList.remove('open'); if(baseUrl){ connectWS(); showToast('서버 URL 저장', 'ok'); } };
+$('#btnSaveIDs').onclick=()=>{ phoneTarget=inpPhoneTarget.value.replace(/\D/g,''); localStorage.setItem('ag.phone.target',phoneTarget);
+  phoneGuardian=inpPhoneGuardian.value.replace(/\D/g,''); localStorage.setItem('ag.phone.guard',phoneGuardian);
+  devTarget=inpDevTarget.value.trim(); if(!devTarget) devTarget=crypto.randomUUID?.()||String(Math.random()); localStorage.setItem('ag.dev.target',devTarget);
+  devGuardian=inpDevGuardian.value.trim(); if(!devGuardian) devGuardian=crypto.randomUUID?.()||String(Math.random()); localStorage.setItem('ag.dev.guard',devGuardian);
+  drawer.classList.remove('open'); showToast('식별/연락처 저장', 'ok'); };
+$('#btnGenIDs').onclick=()=>{ inpDevTarget.value=crypto.randomUUID?.()||('t-'+Math.random()); inpDevGuardian.value=crypto.randomUUID?.()||('g-'+Math.random()); };
+$('#btnShare').onclick=buildShareLink;
+$('#btnCenter').onclick=()=>{ const p=_todayPoints.length?_todayPoints.at(-1):null; const latlng=p?[p.lat,p.lon]:(marker? [marker.getLatLng().lat,marker.getLatLng().lng]:map.getCenter()); map.setView(latlng, Math.max(map.getZoom(),16), {animate:true}); };
+$('#btnZoomIn').onclick=()=>map.setZoom(map.getZoom()+1);
+$('#btnZoomOut').onclick=()=>map.setZoom(map.getZoom()-1);
+$('#btnCall').onclick=()=>{ if(!phoneTarget){ showToast('대상자 번호를 먼저 저장하세요', 'warn'); return; } location.href=`tel:${phoneTarget}`; };
+
+function setTrialFrom(ts){ const dleft=Math.max(0,Math.floor((TRIAL_MS-(Date.now()-ts))/(24*3600*1000))); trialLeftEl.textContent=String(dleft); }
+function redrawAggregatesBoot(){ weekLine.setLatLngs(cutDays(7)); d15Line.setLatLngs(cutDays(15)); d30Line.setLatLngs(cutDays(30)); }
+function loadTodayBoot(){ const day=dateKey(); const t=loadTracks().find(x=>x.day===day); if(t){ window._todayPoints=t.pts.slice(); todayLine.setLatLngs(t.pts.map(p=>[p.lat,p.lon])); renderStatsFrom(window._todayPoints); } }
+
+/* ===== 강제 해제 버튼 ===== */
+$('#alertClose').addEventListener('click', ()=> hideAlertFull());
+$('#alertMute').addEventListener('click', ()=>{
+  muteUntil = Date.now() + 2*60*1000;  // 2분 차단
+  stopFallAlarm(); hideAlertFull();
+  showToast('강제 해제: 2분간 재알림 차단', 'warn');
+});
+
+/* ===== 부팅 ===== */
+(function boot(){
+  setTrialFrom(Number(localStorage.getItem('ag.lastOkTs')||Date.now()));
+
+  // 시계/날씨
+  startClock();
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      pos=>loadWeather(pos.coords.latitude,pos.coords.longitude),
+      _=>loadWeather(CJ_CENTER[0],CJ_CENTER[1]),
+      {maximumAge:60000,timeout:4000}
+    );
+  } else { loadWeather(CJ_CENTER[0],CJ_CENTER[1]); }
+
+  batteryGuard(); redrawAggregatesBoot(); loadTodayBoot(); scheduleMidnightRoll();
+  startGeo();
+  if(baseUrl) connectWS();
+
+  try{
+    if(typeof DeviceMotionEvent==='function' && DeviceMotionEvent.requestPermission){
+      DeviceMotionEvent.requestPermission().then(p=>{ if(p==='granted') attachMotion(); });
+    }else{ attachMotion(); }
+  }catch{}
+
+  // 사운드 온
+  $('#btnAudio').addEventListener('click', ()=>{ if(!audioOn) audioUnlock(); else{ audioOn=false; try{ audioCtx && audioCtx.suspend(); }catch{} $('#btnAudio').textContent='🔇 사운드 OFF'; showToast('사운드 OFF', 'warn'); } });
+  $('#soundGo').addEventListener('click', audioUnlock);
+  window.addEventListener('touchstart', ()=>{ if(!audioOn) audioUnlock(); }, {once:true});
+
+  // PC/모니터링에서 시작 시 위험 0으로 리셋
+  const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints>0;
+  if(!isTouch){ updateRisk(0,0); hideAlertFull(); }
+
+  showToast('준비 완료', 'ok');
+})();
+</script>
+</body>
+</html>
